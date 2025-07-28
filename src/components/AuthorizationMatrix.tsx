@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Shield, Users, Settings, CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react";
+import { Plus, Shield, Users, Settings, CheckCircle, XCircle, Clock, AlertTriangle, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 interface Role {
   id: string;
@@ -32,6 +33,19 @@ interface Permission {
   status: 'allowed' | 'denied' | 'conditional';
   conditions?: string;
   limit?: number;
+}
+
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  roleId: string;
+  exclusions?: {
+    actionId: string;
+    status: 'allowed' | 'denied' | 'conditional';
+    conditions?: string;
+    reason: string;
+  }[];
 }
 
 const defaultRoles: Role[] = [
@@ -276,12 +290,30 @@ const defaultPermissions: Permission[] = [
   { roleId: '14', actionId: '20', status: 'conditional', conditions: 'Supervisor approval required' },
 ];
 
+const defaultEmployees: Employee[] = [
+  { id: '1', name: 'John Smith', email: 'john.smith@company.com', roleId: '5' },
+  { id: '2', name: 'Sarah Johnson', email: 'sarah.johnson@company.com', roleId: '6' },
+  { id: '3', name: 'Mike Chen', email: 'mike.chen@company.com', roleId: '7', 
+    exclusions: [
+      { actionId: '14', status: 'allowed', reason: 'Senior developer with database expertise' }
+    ]
+  },
+  { id: '4', name: 'Emily Davis', email: 'emily.davis@company.com', roleId: '9' },
+  { id: '5', name: 'Robert Wilson', email: 'robert.wilson@company.com', roleId: '13',
+    exclusions: [
+      { actionId: '13', status: 'allowed', conditions: 'Up to $500', reason: 'Trusted employee for small expenses' }
+    ]
+  },
+];
+
 export default function AuthorizationMatrix() {
   const [roles, setRoles] = useState<Role[]>(defaultRoles);
   const [actions, setActions] = useState<Action[]>(defaultActions);
   const [permissions, setPermissions] = useState<Permission[]>(defaultPermissions);
+  const [employees, setEmployees] = useState<Employee[]>(defaultEmployees);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
+  const { toast } = useToast();
 
   const categories = ['all', ...new Set(actions.map(action => action.category))];
 
@@ -295,6 +327,46 @@ export default function AuthorizationMatrix() {
 
   const getPermission = (roleId: string, actionId: string): Permission | undefined => {
     return permissions.find(p => p.roleId === roleId && p.actionId === actionId);
+  };
+
+  const updatePermission = (roleId: string, actionId: string, updates: Partial<Permission>) => {
+    setPermissions(prev => {
+      const existingIndex = prev.findIndex(p => p.roleId === roleId && p.actionId === actionId);
+      
+      if (existingIndex >= 0) {
+        // Update existing permission
+        const updated = [...prev];
+        updated[existingIndex] = { ...updated[existingIndex], ...updates };
+        return updated;
+      } else {
+        // Create new permission
+        const newPermission: Permission = {
+          roleId,
+          actionId,
+          status: 'denied',
+          ...updates
+        };
+        return [...prev, newPermission];
+      }
+    });
+    
+    toast({
+      title: "Permission Updated",
+      description: "The permission has been successfully updated.",
+    });
+  };
+
+  const addEmployee = (employee: Omit<Employee, 'id'>) => {
+    const newEmployee: Employee = {
+      ...employee,
+      id: Date.now().toString()
+    };
+    setEmployees(prev => [...prev, newEmployee]);
+    
+    toast({
+      title: "Employee Added",
+      description: `${employee.name} has been added successfully.`,
+    });
   };
 
   const getRiskIcon = (riskLevel: string) => {
@@ -498,47 +570,14 @@ export default function AuthorizationMatrix() {
                                   {getPermissionBadge(permission)}
                                 </button>
                               </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>
-                                    {role.name} - {action.name}
-                                  </DialogTitle>
-                                  <DialogDescription>
-                                    Configure permission settings for this role-action combination
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4">
-                                  <div>
-                                    <Label>Permission Status</Label>
-                                    <Select defaultValue={permission?.status || 'denied'}>
-                                      <SelectTrigger>
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="allowed">Allowed</SelectItem>
-                                        <SelectItem value="denied">Denied</SelectItem>
-                                        <SelectItem value="conditional">Conditional</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div>
-                                    <Label>Approval Limit ($)</Label>
-                                    <Input 
-                                      type="number" 
-                                      placeholder="Enter amount limit"
-                                      defaultValue={permission?.limit}
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label>Conditions</Label>
-                                    <Textarea 
-                                      placeholder="Specify any conditions or restrictions"
-                                      defaultValue={permission?.conditions}
-                                    />
-                                  </div>
-                                  <Button className="w-full">Save Changes</Button>
-                                </div>
-                              </DialogContent>
+                               <DialogContent>
+                                 <PermissionEditDialog 
+                                   role={role}
+                                   action={action}
+                                   permission={permission}
+                                   onSave={(updates) => updatePermission(role.id, action.id, updates)}
+                                 />
+                               </DialogContent>
                             </Dialog>
                           </td>
                         );
@@ -547,6 +586,80 @@ export default function AuthorizationMatrix() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Employee Management */}
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Employee Management
+            </CardTitle>
+            <CardDescription>
+              Manage employees and their role exclusions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button className="gap-2">
+                      <UserPlus className="h-4 w-4" />
+                      Add Employee
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <AddEmployeeDialog 
+                      roles={roles}
+                      actions={actions}
+                      onSave={addEmployee}
+                    />
+                  </DialogContent>
+                </Dialog>
+              </div>
+              
+              <div className="grid gap-4">
+                {employees.map(employee => {
+                  const role = roles.find(r => r.id === employee.roleId);
+                  return (
+                    <div key={employee.id} className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium">{employee.name}</h4>
+                          <p className="text-sm text-muted-foreground">{employee.email}</p>
+                        </div>
+                        <Badge className={cn("text-xs", role?.color)}>
+                          {role?.name}
+                        </Badge>
+                      </div>
+                      {employee.exclusions && employee.exclusions.length > 0 && (
+                        <div>
+                          <p className="text-sm font-medium text-muted-foreground mb-2">Exclusions:</p>
+                          <div className="space-y-1">
+                            {employee.exclusions.map((exclusion, index) => {
+                              const action = actions.find(a => a.id === exclusion.actionId);
+                              return (
+                                <div key={index} className="flex items-center justify-between text-sm bg-muted/50 p-2 rounded">
+                                  <span>{action?.name}</span>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant={exclusion.status === 'allowed' ? 'default' : 'destructive'} className="text-xs">
+                                      {exclusion.status}
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">{exclusion.reason}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -607,5 +720,277 @@ export default function AuthorizationMatrix() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Permission Edit Dialog Component
+function PermissionEditDialog({ 
+  role, 
+  action, 
+  permission, 
+  onSave 
+}: {
+  role: Role;
+  action: Action;
+  permission: Permission | undefined;
+  onSave: (updates: Partial<Permission>) => void;
+}) {
+  const [status, setStatus] = useState(permission?.status || 'denied');
+  const [limit, setLimit] = useState(permission?.limit?.toString() || '');
+  const [conditions, setConditions] = useState(permission?.conditions || '');
+
+  const handleSave = () => {
+    const updates: Partial<Permission> = {
+      status: status as Permission['status'],
+      conditions: conditions || undefined,
+      limit: limit ? parseInt(limit) : undefined
+    };
+    onSave(updates);
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          {role.name} - {action.name}
+        </DialogTitle>
+        <DialogDescription>
+          Configure permission settings for this role-action combination
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div>
+          <Label>Permission Status</Label>
+          <Select value={status} onValueChange={(value) => setStatus(value as Permission['status'])}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="allowed">Allowed</SelectItem>
+              <SelectItem value="denied">Denied</SelectItem>
+              <SelectItem value="conditional">Conditional</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Approval Limit ($)</Label>
+          <Input 
+            type="number" 
+            placeholder="Enter amount limit"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label>Conditions</Label>
+          <Textarea 
+            placeholder="Specify any conditions or restrictions"
+            value={conditions}
+            onChange={(e) => setConditions(e.target.value)}
+          />
+        </div>
+        <Button className="w-full" onClick={handleSave}>
+          Save Changes
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// Add Employee Dialog Component
+function AddEmployeeDialog({
+  roles,
+  actions,
+  onSave
+}: {
+  roles: Role[];
+  actions: Action[];
+  onSave: (employee: Omit<Employee, 'id'>) => void;
+}) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [roleId, setRoleId] = useState('');
+  const [exclusions, setExclusions] = useState<Employee['exclusions']>([]);
+  const [newExclusion, setNewExclusion] = useState<{
+    actionId: string;
+    status: 'allowed' | 'denied' | 'conditional';
+    conditions: string;
+    reason: string;
+  }>({
+    actionId: '',
+    status: 'allowed',
+    conditions: '',
+    reason: ''
+  });
+
+  const handleAddExclusion = () => {
+    if (newExclusion.actionId && newExclusion.reason) {
+      setExclusions(prev => [...(prev || []), {
+        ...newExclusion,
+        conditions: newExclusion.conditions || undefined
+      }]);
+      setNewExclusion({
+        actionId: '',
+        status: 'allowed' as const,
+        conditions: '',
+        reason: ''
+      });
+    }
+  };
+
+  const handleSave = () => {
+    if (name && email && roleId) {
+      onSave({
+        name,
+        email,
+        roleId,
+        exclusions: exclusions?.length ? exclusions : undefined
+      });
+      // Reset form
+      setName('');
+      setEmail('');
+      setRoleId('');
+      setExclusions([]);
+    }
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Add New Employee</DialogTitle>
+        <DialogDescription>
+          Add an employee to a role with optional exclusions
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4">
+        <div>
+          <Label>Employee Name</Label>
+          <Input 
+            placeholder="Enter employee name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label>Email</Label>
+          <Input 
+            type="email"
+            placeholder="Enter email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label>Role</Label>
+          <Select value={roleId} onValueChange={setRoleId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a role" />
+            </SelectTrigger>
+            <SelectContent>
+              {roles.map(role => (
+                <SelectItem key={role.id} value={role.id}>
+                  {role.name} - {role.department}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        
+        <div className="border-t pt-4">
+          <Label className="text-base">Role Exclusions (Optional)</Label>
+          <p className="text-sm text-muted-foreground mb-3">
+            Grant specific permissions that override the role's default permissions
+          </p>
+          
+          {exclusions && exclusions.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {exclusions.map((exclusion, index) => {
+                const action = actions.find(a => a.id === exclusion.actionId);
+                return (
+                  <div key={index} className="flex items-center justify-between p-2 bg-muted rounded text-sm">
+                    <span>{action?.name}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={exclusion.status === 'allowed' ? 'default' : 'destructive'} className="text-xs">
+                        {exclusion.status}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{exclusion.reason}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          
+          <div className="space-y-3 p-3 border rounded">
+            <div>
+              <Label>Action</Label>
+              <Select value={newExclusion.actionId} onValueChange={(value) => 
+                setNewExclusion(prev => ({ ...prev, actionId: value }))
+              }>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an action" />
+                </SelectTrigger>
+                <SelectContent>
+                  {actions.map(action => (
+                    <SelectItem key={action.id} value={action.id}>
+                      {action.name} - {action.category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Override Status</Label>
+              <Select value={newExclusion.status} onValueChange={(value) => 
+                setNewExclusion(prev => ({ ...prev, status: value as 'allowed' | 'denied' | 'conditional' }))
+              }>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="allowed">Allowed</SelectItem>
+                  <SelectItem value="denied">Denied</SelectItem>
+                  <SelectItem value="conditional">Conditional</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Conditions (Optional)</Label>
+              <Input 
+                placeholder="Special conditions for this exception"
+                value={newExclusion.conditions}
+                onChange={(e) => setNewExclusion(prev => ({ ...prev, conditions: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Reason for Exception</Label>
+              <Input 
+                placeholder="Why is this exception needed?"
+                value={newExclusion.reason}
+                onChange={(e) => setNewExclusion(prev => ({ ...prev, reason: e.target.value }))}
+              />
+            </div>
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm" 
+              onClick={handleAddExclusion}
+              disabled={!newExclusion.actionId || !newExclusion.reason}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Exception
+            </Button>
+          </div>
+        </div>
+        
+        <Button 
+          className="w-full" 
+          onClick={handleSave}
+          disabled={!name || !email || !roleId}
+        >
+          Add Employee
+        </Button>
+      </div>
+    </>
   );
 }
