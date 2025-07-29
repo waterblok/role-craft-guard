@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Shield, Users, Settings, CheckCircle, XCircle, Clock, AlertTriangle, UserPlus } from "lucide-react";
+import { Plus, Shield, Users, Settings, CheckCircle, XCircle, Clock, AlertTriangle, UserPlus, LogOut, Trash2, Edit } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Role {
   id: string;
@@ -313,7 +314,9 @@ export default function AuthorizationMatrix() {
   const [employees, setEmployees] = useState<Employee[]>(defaultEmployees);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
+  const [selectedRoleForExclusions, setSelectedRoleForExclusions] = useState<string | null>(null);
   const { toast } = useToast();
+  const { user, logout } = useAuth();
 
   const categories = ['all', ...new Set(actions.map(action => action.category))];
 
@@ -415,7 +418,12 @@ export default function AuthorizationMatrix() {
               Manage roles, permissions, and access controls across your organization
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted">
+              <span className="text-sm text-muted-foreground">Welcome,</span>
+              <span className="text-sm font-medium">{user?.name}</span>
+            </div>
+            
             <Dialog>
               <DialogTrigger asChild>
                 <Button variant="outline" className="gap-2">
@@ -424,27 +432,22 @@ export default function AuthorizationMatrix() {
                 </Button>
               </DialogTrigger>
               <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Role Management</DialogTitle>
-                  <DialogDescription>
-                    Add, edit, or remove organizational roles
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  {roles.map(role => (
-                    <div key={role.id} className="flex items-center justify-between p-3 rounded-lg border">
-                      <div>
-                        <Badge className={cn("mb-2", role.color)}>{role.name}</Badge>
-                        <p className="text-sm text-muted-foreground">{role.department} • Level {role.level}</p>
-                      </div>
-                      <Button size="sm" variant="outline">Edit</Button>
-                    </div>
-                  ))}
-                  <Button className="w-full gap-2">
-                    <Plus className="h-4 w-4" />
-                    Add New Role
-                  </Button>
-                </div>
+                <RoleManagementDialog 
+                  roles={roles}
+                  onAddRole={(role) => {
+                    const newRole = { ...role, id: Date.now().toString() };
+                    setRoles(prev => [...prev, newRole]);
+                    toast({ title: "Role Added", description: `${role.name} has been added successfully.` });
+                  }}
+                  onEditRole={(roleId, updates) => {
+                    setRoles(prev => prev.map(r => r.id === roleId ? { ...r, ...updates } : r));
+                    toast({ title: "Role Updated", description: "Role has been updated successfully." });
+                  }}
+                  onDeleteRole={(roleId) => {
+                    setRoles(prev => prev.filter(r => r.id !== roleId));
+                    toast({ title: "Role Deleted", description: "Role has been deleted successfully." });
+                  }}
+                />
               </DialogContent>
             </Dialog>
             
@@ -456,32 +459,29 @@ export default function AuthorizationMatrix() {
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Action Configuration</DialogTitle>
-                  <DialogDescription>
-                    Define actions and their risk levels
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {actions.map(action => (
-                    <div key={action.id} className="p-4 rounded-lg border space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getRiskIcon(action.riskLevel)}
-                          <h4 className="font-medium">{action.name}</h4>
-                        </div>
-                        <Badge variant="outline">{action.category}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{action.description}</p>
-                    </div>
-                  ))}
-                  <Button className="w-full gap-2">
-                    <Plus className="h-4 w-4" />
-                    Add New Action
-                  </Button>
-                </div>
+                <ActionManagementDialog 
+                  actions={actions}
+                  onAddAction={(action) => {
+                    const newAction = { ...action, id: Date.now().toString() };
+                    setActions(prev => [...prev, newAction]);
+                    toast({ title: "Action Added", description: `${action.name} has been added successfully.` });
+                  }}
+                  onEditAction={(actionId, updates) => {
+                    setActions(prev => prev.map(a => a.id === actionId ? { ...a, ...updates } : a));
+                    toast({ title: "Action Updated", description: "Action has been updated successfully." });
+                  }}
+                  onDeleteAction={(actionId) => {
+                    setActions(prev => prev.filter(a => a.id !== actionId));
+                    toast({ title: "Action Deleted", description: "Action has been deleted successfully." });
+                  }}
+                />
               </DialogContent>
             </Dialog>
+
+            <Button variant="outline" onClick={logout} className="gap-2">
+              <LogOut className="h-4 w-4" />
+              Logout
+            </Button>
           </div>
         </div>
 
@@ -541,9 +541,14 @@ export default function AuthorizationMatrix() {
                     <th className="text-left p-4 font-medium">Action</th>
                     {filteredRoles.map(role => (
                       <th key={role.id} className="text-center p-4 min-w-32">
-                        <Badge className={cn("text-xs", role.color)}>
-                          {role.name}
-                        </Badge>
+                        <button 
+                          className="hover:scale-105 transition-transform cursor-pointer"
+                          onClick={() => setSelectedRoleForExclusions(role.id)}
+                        >
+                          <Badge className={cn("text-xs", role.color)}>
+                            {role.name}
+                          </Badge>
+                        </button>
                       </th>
                     ))}
                   </tr>
@@ -589,6 +594,78 @@ export default function AuthorizationMatrix() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Role Exclusions View */}
+        {selectedRoleForExclusions && (
+          <Card className="shadow-lg">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Shield className="h-5 w-5" />
+                    Role Exclusions - {roles.find(r => r.id === selectedRoleForExclusions)?.name}
+                  </CardTitle>
+                  <CardDescription>
+                    View employee-specific exclusions that override the role's default permissions
+                  </CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setSelectedRoleForExclusions(null)}
+                >
+                  Close
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {employees
+                  .filter(emp => emp.roleId === selectedRoleForExclusions && emp.exclusions?.length)
+                  .map(employee => (
+                    <div key={employee.id} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h4 className="font-medium">{employee.name}</h4>
+                          <p className="text-sm text-muted-foreground">{employee.email}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Exclusions:</p>
+                        {employee.exclusions?.map((exclusion, index) => {
+                          const action = actions.find(a => a.id === exclusion.actionId);
+                          return (
+                            <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{action?.name}</span>
+                                <Badge variant="outline" className="text-xs">{action?.category}</Badge>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge 
+                                  variant={exclusion.status === 'allowed' ? 'default' : 
+                                          exclusion.status === 'conditional' ? 'secondary' : 'destructive'} 
+                                  className="text-xs"
+                                >
+                                  {exclusion.status}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">{exclusion.reason}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                }
+                {employees.filter(emp => emp.roleId === selectedRoleForExclusions && emp.exclusions?.length).length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">No employees with exclusions found for this role.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Employee Management */}
         <Card className="shadow-lg">
@@ -792,6 +869,273 @@ function PermissionEditDialog({
         <Button className="w-full" onClick={handleSave}>
           Save Changes
         </Button>
+      </div>
+    </>
+  );
+}
+
+// Role Management Dialog Component
+function RoleManagementDialog({
+  roles,
+  onAddRole,
+  onEditRole,
+  onDeleteRole
+}: {
+  roles: Role[];
+  onAddRole: (role: Omit<Role, 'id'>) => void;
+  onEditRole: (roleId: string, updates: Partial<Role>) => void;
+  onDeleteRole: (roleId: string) => void;
+}) {
+  const [newRole, setNewRole] = useState({
+    name: '',
+    department: '',
+    level: 1,
+    color: 'bg-gray-100 text-gray-800'
+  });
+
+  const handleAddRole = () => {
+    if (newRole.name && newRole.department) {
+      onAddRole(newRole);
+      setNewRole({
+        name: '',
+        department: '',
+        level: 1,
+        color: 'bg-gray-100 text-gray-800'
+      });
+    }
+  };
+
+  const colorOptions = [
+    'bg-purple-100 text-purple-800',
+    'bg-blue-100 text-blue-800',
+    'bg-cyan-100 text-cyan-800',
+    'bg-amber-100 text-amber-800',
+    'bg-green-100 text-green-800',
+    'bg-orange-100 text-orange-800',
+    'bg-violet-100 text-violet-800',
+    'bg-indigo-100 text-indigo-800',
+    'bg-rose-100 text-rose-800',
+    'bg-teal-100 text-teal-800',
+    'bg-lime-100 text-lime-800',
+    'bg-pink-100 text-pink-800',
+    'bg-gray-100 text-gray-800',
+    'bg-slate-100 text-slate-800'
+  ];
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Role Management</DialogTitle>
+        <DialogDescription>
+          Add, edit, or remove organizational roles
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4 max-h-96 overflow-y-auto">
+        {roles.map(role => (
+          <div key={role.id} className="flex items-center justify-between p-3 rounded-lg border">
+            <div>
+              <Badge className={cn("mb-2", role.color)}>{role.name}</Badge>
+              <p className="text-sm text-muted-foreground">{role.department} • Level {role.level}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline">
+                <Edit className="h-4 w-4" />
+              </Button>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                onClick={() => onDeleteRole(role.id)}
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        
+        <div className="border-t pt-4">
+          <h4 className="font-medium mb-3">Add New Role</h4>
+          <div className="space-y-3">
+            <div>
+              <Label>Role Name</Label>
+              <Input 
+                placeholder="Enter role name"
+                value={newRole.name}
+                onChange={(e) => setNewRole(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Department</Label>
+              <Input 
+                placeholder="Enter department"
+                value={newRole.department}
+                onChange={(e) => setNewRole(prev => ({ ...prev, department: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Level (0-5)</Label>
+              <Input 
+                type="number"
+                min="0"
+                max="5"
+                value={newRole.level}
+                onChange={(e) => setNewRole(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
+            <div>
+              <Label>Color</Label>
+              <Select value={newRole.color} onValueChange={(value) => setNewRole(prev => ({ ...prev, color: value }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {colorOptions.map(color => (
+                    <SelectItem key={color} value={color}>
+                      <Badge className={color}>Sample</Badge>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button 
+              className="w-full gap-2" 
+              onClick={handleAddRole}
+              disabled={!newRole.name || !newRole.department}
+            >
+              <Plus className="h-4 w-4" />
+              Add Role
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Action Management Dialog Component
+function ActionManagementDialog({
+  actions,
+  onAddAction,
+  onEditAction,
+  onDeleteAction
+}: {
+  actions: Action[];
+  onAddAction: (action: Omit<Action, 'id'>) => void;
+  onEditAction: (actionId: string, updates: Partial<Action>) => void;
+  onDeleteAction: (actionId: string) => void;
+}) {
+  const [newAction, setNewAction] = useState({
+    name: '',
+    category: '',
+    riskLevel: 'low' as Action['riskLevel'],
+    description: ''
+  });
+
+  const handleAddAction = () => {
+    if (newAction.name && newAction.category && newAction.description) {
+      onAddAction(newAction);
+      setNewAction({
+        name: '',
+        category: '',
+        riskLevel: 'low' as Action['riskLevel'],
+        description: ''
+      });
+    }
+  };
+
+  const getRiskIcon = (riskLevel: string) => {
+    switch (riskLevel) {
+      case 'low': return <CheckCircle className="h-4 w-4 text-success" />;
+      case 'medium': return <Clock className="h-4 w-4 text-warning" />;
+      case 'high': return <AlertTriangle className="h-4 w-4 text-destructive" />;
+      case 'critical': return <XCircle className="h-4 w-4 text-destructive" />;
+      default: return null;
+    }
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Action Configuration</DialogTitle>
+        <DialogDescription>
+          Define actions and their risk levels
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4 max-h-96 overflow-y-auto">
+        {actions.map(action => (
+          <div key={action.id} className="p-4 rounded-lg border space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {getRiskIcon(action.riskLevel)}
+                <h4 className="font-medium">{action.name}</h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">{action.category}</Badge>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => onDeleteAction(action.id)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">{action.description}</p>
+          </div>
+        ))}
+        
+        <div className="border-t pt-4">
+          <h4 className="font-medium mb-3">Add New Action</h4>
+          <div className="space-y-3">
+            <div>
+              <Label>Action Name</Label>
+              <Input 
+                placeholder="Enter action name"
+                value={newAction.name}
+                onChange={(e) => setNewAction(prev => ({ ...prev, name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Input 
+                placeholder="Enter category"
+                value={newAction.category}
+                onChange={(e) => setNewAction(prev => ({ ...prev, category: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Risk Level</Label>
+              <Select value={newAction.riskLevel} onValueChange={(value) => setNewAction(prev => ({ ...prev, riskLevel: value as Action['riskLevel'] }))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea 
+                placeholder="Enter action description"
+                value={newAction.description}
+                onChange={(e) => setNewAction(prev => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+            <Button 
+              className="w-full gap-2" 
+              onClick={handleAddAction}
+              disabled={!newAction.name || !newAction.category || !newAction.description}
+            >
+              <Plus className="h-4 w-4" />
+              Add Action
+            </Button>
+          </div>
+        </div>
       </div>
     </>
   );
