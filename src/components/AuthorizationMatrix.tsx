@@ -314,7 +314,6 @@ export default function AuthorizationMatrix() {
   const [employees, setEmployees] = useState<Employee[]>(defaultEmployees);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRole, setSelectedRole] = useState<string>('all');
-  const [selectedRoleForExclusions, setSelectedRoleForExclusions] = useState<string | null>(null);
   const { toast } = useToast();
   const { user, logout } = useAuth();
 
@@ -539,31 +538,37 @@ export default function AuthorizationMatrix() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left p-4 font-medium">Action</th>
-                    {filteredRoles.map(role => (
-                      <th key={role.id} className="text-center p-4 min-w-32">
-                        <button 
-                          className="hover:scale-105 transition-transform cursor-pointer"
-                          onClick={() => setSelectedRoleForExclusions(role.id)}
-                        >
-                          <Badge className={cn("text-xs", role.color)}>
-                            {role.name}
-                          </Badge>
-                        </button>
-                      </th>
-                    ))}
+                     {filteredRoles.map(role => (
+                       <th key={role.id} className="text-center p-4 min-w-32">
+                         <Badge className={cn("text-xs", role.color)}>
+                           {role.name}
+                         </Badge>
+                       </th>
+                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filteredActions.map(action => (
                     <tr key={action.id} className="border-b hover:bg-muted/50 transition-colors">
                       <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          {getRiskIcon(action.riskLevel)}
-                          <div>
-                            <div className="font-medium">{action.name}</div>
-                            <div className="text-sm text-muted-foreground">{action.category}</div>
-                          </div>
-                        </div>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <button className="flex items-center gap-3 hover:bg-muted/30 p-2 rounded transition-colors cursor-pointer">
+                              {getRiskIcon(action.riskLevel)}
+                              <div>
+                                <div className="font-medium">{action.name}</div>
+                                <div className="text-sm text-muted-foreground">{action.category}</div>
+                              </div>
+                            </button>
+                          </DialogTrigger>
+                          <DialogContent>
+                            <ActionExclusionsDialog 
+                              action={action}
+                              employees={employees}
+                              roles={roles}
+                            />
+                          </DialogContent>
+                        </Dialog>
                       </td>
                       {filteredRoles.map(role => {
                         const permission = getPermission(role.id, action.id);
@@ -595,77 +600,6 @@ export default function AuthorizationMatrix() {
           </CardContent>
         </Card>
 
-        {/* Role Exclusions View */}
-        {selectedRoleForExclusions && (
-          <Card className="shadow-lg">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Shield className="h-5 w-5" />
-                    Role Exclusions - {roles.find(r => r.id === selectedRoleForExclusions)?.name}
-                  </CardTitle>
-                  <CardDescription>
-                    View employee-specific exclusions that override the role's default permissions
-                  </CardDescription>
-                </div>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => setSelectedRoleForExclusions(null)}
-                >
-                  Close
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {employees
-                  .filter(emp => emp.roleId === selectedRoleForExclusions && emp.exclusions?.length)
-                  .map(employee => (
-                    <div key={employee.id} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <h4 className="font-medium">{employee.name}</h4>
-                          <p className="text-sm text-muted-foreground">{employee.email}</p>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">Exclusions:</p>
-                        {employee.exclusions?.map((exclusion, index) => {
-                          const action = actions.find(a => a.id === exclusion.actionId);
-                          return (
-                            <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">{action?.name}</span>
-                                <Badge variant="outline" className="text-xs">{action?.category}</Badge>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge 
-                                  variant={exclusion.status === 'allowed' ? 'default' : 
-                                          exclusion.status === 'conditional' ? 'secondary' : 'destructive'} 
-                                  className="text-xs"
-                                >
-                                  {exclusion.status}
-                                </Badge>
-                                <span className="text-xs text-muted-foreground">{exclusion.reason}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                }
-                {employees.filter(emp => emp.roleId === selectedRoleForExclusions && emp.exclusions?.length).length === 0 && (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground">No employees with exclusions found for this role.</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Employee Management */}
         <Card className="shadow-lg">
@@ -797,6 +731,89 @@ export default function AuthorizationMatrix() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Action Exclusions Dialog Component
+function ActionExclusionsDialog({
+  action,
+  employees,
+  roles
+}: {
+  action: Action;
+  employees: Employee[];
+  roles: Role[];
+}) {
+  // Filter employees that have exclusions for this specific action
+  const employeesWithExclusions = employees.filter(emp => 
+    emp.exclusions?.some(exclusion => exclusion.actionId === action.id)
+  );
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Settings className="h-5 w-5" />
+          {action.name} - Exclusions
+        </DialogTitle>
+        <DialogDescription>
+          View employees with specific exclusions for this action
+        </DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4 max-h-96 overflow-y-auto">
+        {employeesWithExclusions.length > 0 ? (
+          employeesWithExclusions.map(employee => {
+            const role = roles.find(r => r.id === employee.roleId);
+            const exclusion = employee.exclusions?.find(exc => exc.actionId === action.id);
+            
+            return (
+              <div key={employee.id} className="border rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium">{employee.name}</h4>
+                    <p className="text-sm text-muted-foreground">{employee.email}</p>
+                  </div>
+                  <Badge className={cn("text-xs", role?.color)}>
+                    {role?.name}
+                  </Badge>
+                </div>
+                
+                {exclusion && (
+                  <div className="bg-muted/50 p-3 rounded">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">Exception Status:</span>
+                      <Badge 
+                        variant={exclusion.status === 'allowed' ? 'default' : 
+                                exclusion.status === 'conditional' ? 'secondary' : 'destructive'} 
+                        className="text-xs"
+                      >
+                        {exclusion.status}
+                      </Badge>
+                    </div>
+                    
+                    {exclusion.conditions && (
+                      <div className="mb-2">
+                        <span className="text-sm font-medium">Conditions:</span>
+                        <p className="text-sm text-muted-foreground mt-1">{exclusion.conditions}</p>
+                      </div>
+                    )}
+                    
+                    <div>
+                      <span className="text-sm font-medium">Reason:</span>
+                      <p className="text-sm text-muted-foreground mt-1">{exclusion.reason}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-center py-8">
+            <p className="text-muted-foreground">No employees with exclusions found for this action.</p>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
