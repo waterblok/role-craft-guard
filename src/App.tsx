@@ -3,28 +3,33 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { SupabaseAuthProvider, useSupabaseAuth } from "./contexts/SupabaseAuthContext";
 import Index from "./pages/Index";
-import Login from "./pages/Login";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  const { user, loading } = useSupabaseAuth();
+  
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  return user ? <>{children}</> : <Navigate to="/auth" replace />;
 }
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <AuthProvider>
+    <SupabaseAuthProvider>
       <TooltipProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route path="/auth" element={<Auth />} />
             <Route path="/" element={
               <ProtectedRoute>
                 <Index />
@@ -35,7 +40,7 @@ const App = () => (
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
-    </AuthProvider>
+    </SupabaseAuthProvider>
   </QueryClientProvider>
 );
 

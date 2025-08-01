@@ -1,7 +1,7 @@
-import AuthorizationMatrix from "@/components/AuthorizationMatrix";
+import SupabaseAuthorizationMatrix from "@/components/SupabaseAuthorizationMatrix";
 
 const Index = () => {
-  return <AuthorizationMatrix />;
+  return <SupabaseAuthorizationMatrix />;
 };
 
 export default Index;
