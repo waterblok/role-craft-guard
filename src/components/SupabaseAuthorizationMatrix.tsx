@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Download, LogOut, Users, Shield, Activity } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LogOut, Users, Shield, Activity, Settings } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useSupabaseAuth } from '@/contexts/SupabaseAuthContext';
 import { useToast } from '@/hooks/use-toast';
+import AuthorizationMatrixView from './AuthorizationMatrixView';
+import UserManagement from './UserManagement';
 
 // Using database schema types directly
 interface DatabaseRole {
@@ -60,8 +59,8 @@ export default function SupabaseAuthorizationMatrix() {
   const [permissions, setPermissions] = useState<DatabasePermission[]>([]);
   const [profiles, setProfiles] = useState<DatabaseProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [userRole, setUserRole] = useState<string>('');
+  const [activeTab, setActiveTab] = useState('matrix');
 
   useEffect(() => {
     loadData();
@@ -72,11 +71,12 @@ export default function SupabaseAuthorizationMatrix() {
       setLoading(true);
       
       // Use any type to bypass TypeScript type checking while types are updating
-      const [rolesRes, actionsRes, permissionsRes, profilesRes] = await Promise.all([
+      const [rolesRes, actionsRes, permissionsRes, profilesRes, userRoleRes] = await Promise.all([
         (supabase as any).from('roles').select('*'),
         (supabase as any).from('actions').select('*'),
         (supabase as any).from('permissions').select('*'),
-        (supabase as any).from('profiles').select('*')
+        (supabase as any).from('profiles').select('*'),
+        (supabase as any).rpc('get_user_role', { user_uuid: user?.id })
       ]);
 
       if (rolesRes.error) throw rolesRes.error;
@@ -88,6 +88,7 @@ export default function SupabaseAuthorizationMatrix() {
       setActions(actionsRes.data || []);
       setPermissions(permissionsRes.data || []);
       setProfiles(profilesRes.data || []);
+      setUserRole(userRoleRes.data || '');
     } catch (error) {
       console.error('Error loading data:', error);
       toast({
@@ -138,69 +139,8 @@ export default function SupabaseAuthorizationMatrix() {
     }
   };
 
-  const exportToCSV = () => {
-    const csvData = [];
-    csvData.push(['Role', 'Action', 'Status', 'Limit', 'Conditions', 'Category']);
-    
-    roles.forEach(role => {
-      actions.forEach(action => {
-        const permission = getPermission(role.id, action.id);
-        csvData.push([
-          role.name,
-          action.name,
-          permission?.status || 'denied',
-          permission?.limit_value || '',
-          permission?.conditions || '',
-          action.category
-        ]);
-      });
-    });
-
-    const csvContent = csvData.map(row => 
-      row.map(field => `"${field}"`).join(',')
-    ).join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `authorization-matrix-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    toast({
-      title: "Success",
-      description: "Authorization matrix exported to CSV.",
-    });
-  };
-
-  const getStatusBadge = (permission: DatabasePermission | undefined) => {
-    if (!permission) {
-      return <Badge variant="secondary">Denied</Badge>;
-    }
-    
-    switch (permission.status) {
-      case 'granted':
-        return <Badge variant="default" className="bg-green-600 hover:bg-green-700">Granted</Badge>;
-      case 'conditional':
-        return <Badge variant="outline" className="border-yellow-500 text-yellow-700 hover:bg-yellow-50">Conditional</Badge>;
-      case 'denied':
-        return <Badge variant="destructive">Denied</Badge>;
-      default:
-        return <Badge variant="secondary">Denied</Badge>;
-    }
-  };
-
-  const filteredActions = actions.filter(action => {
-    const matchesCategory = selectedCategory === 'all' || action.category === selectedCategory;
-    const matchesSearch = action.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         action.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
-
-  const categories = Array.from(new Set(actions.map(action => action.category)));
+  const isAdmin = userRole === 'Admin';
+  const canEdit = userRole === 'Edit & View' || userRole === 'Admin';
 
   if (loading) {
     return (
@@ -223,12 +163,14 @@ export default function SupabaseAuthorizationMatrix() {
             <p className="text-muted-foreground mt-2">
               Manage roles and permissions for your organization
             </p>
+            <div className="mt-2">
+              <span className="text-sm text-muted-foreground">Your role: </span>
+              <span className="text-sm font-medium text-primary">
+                {userRole || 'No Role Assigned'}
+              </span>
+            </div>
           </div>
           <div className="flex gap-4">
-            <Button onClick={exportToCSV} variant="outline">
-              <Download className="mr-2 h-4 w-4" />
-              Export CSV
-            </Button>
             <Button onClick={signOut} variant="outline">
               <LogOut className="mr-2 h-4 w-4" />
               Sign Out
@@ -267,112 +209,47 @@ export default function SupabaseAuthorizationMatrix() {
           </Card>
         </div>
 
-        {/* Filters */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="category-filter">Category</Label>
-                <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map(category => (
-                      <SelectItem key={category} value={category}>{category}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="search">Search Actions</Label>
-                <Input
-                  id="search"
-                  placeholder="Search by action name or description..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Authorization Matrix */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Permission Matrix</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Click on permission badges to toggle between granted, denied, and conditional states
-            </p>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left p-4 font-medium">Action</th>
-                    {roles.map(role => (
-                      <th key={role.id} className="text-center p-4 font-medium min-w-32">
-                        <div className="flex flex-col items-center gap-2">
-                          <span>{role.name}</span>
-                          <div 
-                            className="w-4 h-4 rounded-full" 
-                            style={{ backgroundColor: role.color }}
-                          ></div>
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredActions.map(action => (
-                    <tr key={action.id} className="border-b hover:bg-muted/50">
-                      <td className="p-4">
-                        <div>
-                          <div className="font-medium">{action.name}</div>
-                          <div className="text-sm text-muted-foreground">{action.description}</div>
-                          <Badge variant="outline" className="mt-1">{action.category}</Badge>
-                        </div>
-                      </td>
-                      {roles.map(role => {
-                        const permission = getPermission(role.id, action.id);
-                        return (
-                          <td key={role.id} className="p-4 text-center">
-                            <button
-                              onClick={() => {
-                                const currentStatus = permission?.status || 'denied';
-                                const nextStatus = currentStatus === 'denied' ? 'granted' : 
-                                                 currentStatus === 'granted' ? 'conditional' : 'denied';
-                                updatePermission(role.id, action.id, nextStatus);
-                              }}
-                              className="hover:scale-105 transition-transform"
-                            >
-                              {getStatusBadge(permission)}
-                            </button>
-                            {permission?.limit_value && (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                Limit: {permission.limit_value}
-                              </div>
-                            )}
-                            {permission?.conditions && (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {permission.conditions}
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="matrix">Authorization Matrix</TabsTrigger>
+            <TabsTrigger value="admin" disabled={!isAdmin}>
+              <Settings className="mr-2 h-4 w-4" />
+              Admin Panel
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="matrix" className="mt-6">
+            <AuthorizationMatrixView
+              roles={roles}
+              actions={actions}
+              permissions={permissions}
+              userRole={userRole}
+              onPermissionUpdate={updatePermission}
+            />
+          </TabsContent>
+          
+          <TabsContent value="admin" className="mt-6">
+            {isAdmin ? (
+              <UserManagement
+                roles={roles}
+                onDataChange={loadData}
+              />
+            ) : (
+              <Card>
+                <CardContent className="flex items-center justify-center p-8">
+                  <div className="text-center">
+                    <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-medium">Access Denied</h3>
+                    <p className="text-muted-foreground">
+                      You need Admin privileges to access this section.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
