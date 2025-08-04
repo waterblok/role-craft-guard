@@ -139,8 +139,8 @@ export default function SupabaseAuthorizationMatrix() {
     }
   };
 
-  const isAdmin = userRole === 'Admin';
-  const canEdit = userRole === 'Edit & View' || userRole === 'Admin';
+  const isAdmin = userRole?.toLowerCase() === 'admin';
+  const canEdit = userRole?.toLowerCase() === 'edit & view' || userRole?.toLowerCase() === 'admin';
 
   if (loading) {
     return (
